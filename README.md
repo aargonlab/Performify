@@ -157,9 +157,13 @@ Four components: **web**, **worker**, **PostgreSQL**, **Redis**. The multi-stage
 `Dockerfile` builds both images:
 
 ```bash
-docker build --target web -t performify-web .
+docker build --target web --build-arg SHOPIFY_APP_URL=https://app.example.com -t performify-web .
 docker build --target worker -t performify-worker .
 ```
+
+`SHOPIFY_APP_URL` must be known at build time: its host is baked into the server build as
+an allowed action origin (`react-router.config.ts`), which React Router requires when the
+app runs behind a TLS-terminating proxy.
 
 1. Provision managed Postgres and Redis; set the variables above on both services.
 2. The web container runs `prisma migrate deploy` on start (`docker-start`).

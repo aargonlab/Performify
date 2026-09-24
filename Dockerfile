@@ -8,6 +8,9 @@ RUN npm ci && npm cache clean --force
 COPY . .
 
 FROM deps AS build
+# Public app URL: its host is baked into the build as an allowed action origin
+ARG SHOPIFY_APP_URL
+ENV SHOPIFY_APP_URL=$SHOPIFY_APP_URL
 ENV NODE_ENV=production
 RUN npx prisma generate && npm run build
 
