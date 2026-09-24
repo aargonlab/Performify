@@ -1,0 +1,98 @@
+{
+  "name": "performify",
+  "private": true,
+  "scripts": {
+    "build": "react-router build",
+    "dev": "shopify app dev",
+    "config:link": "shopify app config link",
+    "generate": "shopify app generate",
+    "deploy": "shopify app deploy",
+    "config:use": "shopify app config use",
+    "env": "shopify app env",
+    "start": "react-router-serve ./build/server/index.js",
+    "docker-start": "npm run setup && npm run start",
+    "setup": "prisma generate && prisma migrate deploy",
+    "worker": "tsx worker/index.ts",
+    "worker:dev": "tsx watch worker/index.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "docker:test": "docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests && docker compose -f docker-compose.test.yml down -v",
+    "docker:dev": "docker compose up -d postgres redis",
+    "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
+    "shopify": "shopify",
+    "prisma": "prisma",
+    "graphql-codegen": "graphql-codegen",
+    "vite": "vite",
+    "typecheck": "react-router typegen && tsc --noEmit"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "@react-router/dev": "7.18.4",
+    "@react-router/fs-routes": "7.18.4",
+    "@react-router/node": "7.18.4",
+    "@react-router/serve": "7.18.4",
+    "@shopify/app-bridge-react": "^4.2.13",
+    "@shopify/cli": "4.8.2",
+    "@shopify/shopify-app-react-router": "^3.0.0",
+    "@shopify/shopify-app-session-storage-prisma": "^11.0.0",
+    "bullmq": "^6.3.8",
+    "ioredis": "^6.0.0",
+    "isbot": "^5.2.2",
+    "nodemailer": "^10.0.10",
+    "pdfkit": "^0.20.2",
+    "prisma": "^6.19.3",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "7.18.4",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@shopify/api-codegen-preset": "^3.0.0",
+    "@shopify/polaris-types": "^1.1.0",
+    "@types/node": "^26.6.2",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pdfkit": "^0.17.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "graphql-config": "^5.1.7",
+    "prettier": "^3.9.9",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  },
+  "workspaces": [
+    "extensions/*"
+  ],
+  "trustedDependencies": [
+    "@shopify/plugin-cloudflare"
+  ],
+  "overrides": {
+    "p-map": "^4.0.0",
+    "qs": "^6.16.0"
+  },
+  "author": "aargonlab (https://aargonlab.com)",
+  "license": "Apache-2.0",
+  "allowScripts": {
+    "prisma@6.19.3": true,
+    "@parcel/watcher@2.6.0": true,
+    "esbuild@0.28.1": true,
+    "unrs-resolver@1.12.2": true,
+    "msgpackr-extract@3.0.4": true,
+    "@prisma/engines@6.19.3": true,
+    "@prisma/client@6.19.3": true
+  }
+}

@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Shopify session storage (required by @shopify/shopify-app-session-storage-prisma)
+// ---------------------------------------------------------------------------
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+
+  @@index([shop])
+}
+
+// ---------------------------------------------------------------------------
+// Shop registry — one row per installed shop
+// ---------------------------------------------------------------------------
+
+model Shop {
+  id             String    @id @default(cuid())
+  domain         String    @unique // e.g. my-shop.myshopify.com
+  timezone       String? // IANA tz read from the shop, used as scheduling default
+  installedAt    DateTime  @default(now())
+  uninstalledAt  DateTime?
+  // Misc shop-level settings: { psiApiKey?: string (overrides env), locale?: string }
+  settings       Json      @default("{}")
+
+  profiles      AuditProfile[]
+  runs          AuditRun[]
+  alerts        Alert[]
+  webhookEvents WebhookEvent[]
+}
+
+// ---------------------------------------------------------------------------
+// Audit profiles — merchant-editable presets ("profili di audit")
+// ---------------------------------------------------------------------------
+
+model AuditProfile {
+  id        String   @id @default(cuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name      String
+  isDefault Boolean  @default(false)
+
+  // Device profiles to audit: ["MOBILE"], ["DESKTOP"] or both
+  devices    String[] @default(["MOBILE"])
+  // Lighthouse runs per URL; the median is stored (reduces variance)
+  runsPerUrl Int      @default(3)
+  // PSI categories: performance, accessibility, best-practices, seo
+  categories String[] @default(["performance", "accessibility", "best-practices", "seo"])
+
+  // Market selection: { mode: "all" | "include" | "exclude", handles: string[],
+  //   localeMode: "default" | "all", urlOverrides?: Record<string,string> }
+  markets Json @default("{\"mode\":\"all\",\"handles\":[],\"localeMode\":\"default\"}")
+
+  // Page selection per type:
+  // { home: {enabled}, cart: {enabled},
+  //   collections: {enabled, mode: "auto"|"manual", sampleSize, handles: string[]},
+  //   products:    {enabled, mode: "auto"|"manual", sampleSize, handles: string[]},
+  //   pages:       {enabled, mode: "auto"|"manual", sampleSize, handles: string[]},
+  //   blogs:       {enabled, mode: "auto"|"manual", sampleSize, handles: string[]},
+  //   custom:      {enabled, urls: string[]} }
+  pages Json @default("{}")
+
+  // Scheduling: { enabled, cron: "0 4 1 * *", timezone: "Europe/Rome" }
+  schedule            Json    @default("{\"enabled\":true,\"cron\":\"0 4 1 * *\",\"timezone\":\"UTC\"}")
+  // Run automatically when a theme is published (themes/publish webhook)
+  themePublishTrigger Boolean @default(true)
+
+  // Performance budgets: [{ id, metric, operator: "lt"|"gt", value, severity: "warning"|"critical" }]
+  // metric ∈ performanceScore|accessibilityScore|bestPracticesScore|seoScore|lcpMs|cls|tbtMs|fieldLcpMs|fieldInpMs|fieldCls
+  thresholds Json @default("[]")
+  // Notifications: { emails: string[], webhookUrl?: string }
+  notifications Json @default("{\"emails\":[]}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs AuditRun[]
+
+  @@unique([shopId, name])
+  @@index([shopId])
+}
+
+// ---------------------------------------------------------------------------
+// Audit runs — one historical snapshot per execution
+// ---------------------------------------------------------------------------
+
+enum RunTrigger {
+  MANUAL
+  SCHEDULED
+  THEME_PUBLISH
+}
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED // all page results succeeded
+  PARTIAL // completed, but some page results failed
+  FAILED // nothing succeeded / setup error
+  CANCELED
+}
+
+model AuditRun {
+  id        String        @id @default(cuid())
+  shopId    String
+  shop      Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  profileId String?
+  profile   AuditProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  // Frozen copy of the profile at run time — historical reports stay interpretable
+  profileSnapshot Json
+
+  trigger   RunTrigger
+  // Set when trigger = THEME_PUBLISH: correlates the report to the theme version
+  themeId   String?
+  themeName String?
+
+  status RunStatus @default(QUEUED)
+  error  String?
+
+  totalJobs     Int @default(0)
+  completedJobs Int @default(0)
+  failedJobs    Int @default(0)
+
+  // Descriptive report: { locale, summary, sections: [...], recommendations: [...],
+  //   comparedToRunId?: string } — generated at finalize time
+  narrative Json?
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  pageResults PageResult[]
+  alerts      Alert[]
+  shareLinks  ShareLink[]
+
+  @@index([shopId, createdAt(sort: Desc)])
+  @@index([profileId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Per URL × market × device results
+// ---------------------------------------------------------------------------
+
+enum Device {
+  MOBILE
+  DESKTOP
+}
+
+enum PageType {
+  HOME
+  COLLECTION
+  PRODUCT
+  CART
+  PAGE // CMS page
+  BLOG // blog index
+  ARTICLE
+  CUSTOM
+}
+
+enum ResultStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model PageResult {
+  id    String @id @default(cuid())
+  runId String
+  run   AuditRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  url          String
+  pageType     PageType
+  device       Device
+  marketHandle String?
+  marketName   String?
+  locale       String?
+  // Human label, e.g. collection/product title
+  label        String?
+
+  status        ResultStatus @default(PENDING)
+  error         String?
+  runsRequested Int          @default(3)
+  runsCompleted Int          @default(0)
+
+  // Median Lighthouse category scores, 0–100 (lab)
+  performanceScore   Int?
+  accessibilityScore Int?
+  bestPracticesScore Int?
+  seoScore           Int?
+
+  // Median lab metrics (Lighthouse)
+  lcpMs        Float?
+  cls          Float?
+  tbtMs        Float?
+  fcpMs        Float?
+  speedIndexMs Float?
+  ttfbMs       Float?
+
+  // CrUX field data (28-day, p75). fieldSource: "page" | "origin" | null.
+  // Kept separate from lab so the source can switch to the CrUX API later.
+  fieldSource  String?
+  fieldLcpMs   Int?
+  fieldInpMs   Int?
+  fieldCls     Float?
+  fieldOverall String? // FAST | AVERAGE | SLOW
+
+  lighthouseVersion String?
+  // Top extracted opportunities: [{ id, title, savingsMs, score, displayValue }]
+  topOpportunities  Json?
+
+  completedAt DateTime?
+
+  rawReports RawReport[]
+
+  @@index([runId])
+  @@index([runId, pageType, device])
+}
+
+// Full PSI JSON responses (JSONB). One per Lighthouse run (runsPerUrl per PageResult).
+// If reports become too heavy, move payloads to object storage and keep a pointer here.
+model RawReport {
+  id           String     @id @default(cuid())
+  pageResultId String
+  pageResult   PageResult @relation(fields: [pageResultId], references: [id], onDelete: Cascade)
+  runIndex     Int
+  fetchedAt    DateTime   @default(now())
+  json         Json
+
+  @@unique([pageResultId, runIndex])
+}
+
+// ---------------------------------------------------------------------------
+// Alerts — threshold violations detected at run finalize
+// ---------------------------------------------------------------------------
+
+model Alert {
+  id     String   @id @default(cuid())
+  shopId String
+  shop   Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  runId  String
+  run    AuditRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  metric    String
+  operator  String // lt | gt
+  threshold Float
+  actual    Float
+  severity  String // warning | critical
+
+  url          String?
+  marketHandle String?
+  device       Device?
+  pageType     PageType?
+
+  notifiedEmail   Boolean  @default(false)
+  notifiedWebhook Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@index([shopId, createdAt(sort: Desc)])
+}
+
+// ---------------------------------------------------------------------------
+// Webhook idempotency — primary key is X-Shopify-Webhook-Id
+// ---------------------------------------------------------------------------
+
+model WebhookEvent {
+  id         String   @id // X-Shopify-Webhook-Id
+  topic      String
+  shopDomain String
+  shopId     String?
+  shop       Shop?    @relation(fields: [shopId], references: [id], onDelete: SetNull)
+  receivedAt DateTime @default(now())
+
+  @@index([shopDomain, topic])
+}
+
+// ---------------------------------------------------------------------------
+// Shareable report links
+// ---------------------------------------------------------------------------
+
+model ShareLink {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  runId     String
+  run       AuditRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+  revokedAt DateTime?
+}

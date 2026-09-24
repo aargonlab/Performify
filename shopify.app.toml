@@ -1,0 +1,43 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+# Filled by `npm run config:link` (Shopify CLI) — see README
+client_id = ""
+# Replace with the production host before `shopify app deploy` (see README)
+application_url = "https://example.com"
+embedded = true
+name = "performify"
+handle = "performify"
+
+[access_scopes]
+# Read-only, least privilege — each scope is justified in the README
+scopes = "read_content,read_locales,read_markets,read_products,read_themes"
+# Omitted/false => Shopify managed installation (token exchange, no OAuth redirects)
+use_legacy_install_flow = false
+
+[webhooks]
+api_version = "2026-07"
+
+  # Trigger: run an audit when a theme is published (requires read_themes)
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/themes/publish"
+  topics = [ "themes/publish" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+  # Mandatory GDPR compliance webhooks — note the compliance_topics key
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/compliance"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

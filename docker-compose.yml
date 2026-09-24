@@ -1,0 +1,76 @@
+name: performify
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: performify
+      POSTGRES_PASSWORD: performify
+      POSTGRES_DB: performify
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U performify"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Optional containerized web app (profile "app"). For local development the
+  # usual flow is `shopify app dev` on the host with postgres/redis from here.
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      target: web
+    environment:
+      DATABASE_URL: postgresql://performify:performify@postgres:5432/performify
+      REDIS_URL: redis://redis:6379
+      SHOPIFY_API_KEY: ${SHOPIFY_API_KEY:-}
+      SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET:-}
+      SHOPIFY_APP_URL: ${SHOPIFY_APP_URL:-}
+      SCOPES: ${SCOPES:-read_content,read_locales,read_markets,read_products,read_themes}
+      PSI_API_KEY: ${PSI_API_KEY:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      target: worker
+    environment:
+      DATABASE_URL: postgresql://performify:performify@postgres:5432/performify
+      REDIS_URL: redis://redis:6379
+      SHOPIFY_API_KEY: ${SHOPIFY_API_KEY:-}
+      SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET:-}
+      SHOPIFY_APP_URL: ${SHOPIFY_APP_URL:-}
+      PSI_API_KEY: ${PSI_API_KEY:-}
+      ALERT_SMTP_URL: ${ALERT_SMTP_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
